@@ -21,30 +21,6 @@ $script:localizedData = Get-LocalizedData -DefaultUICulture en-US
     .PARAMETER InstallerPath
        The full path to the EDB Postgres installer.
 
-    .PARAMETER ServiceName
-        The name of the windows service that postgres will run under.
-
-    .PARAMETER Prefix
-        The folder path that Postgre should be installed to.
-
-    .PARAMETER Port
-        The port that Postgres will listen on for incoming connections.
-
-    .PARAMETER DataDir
-        The path for all the data from this Postgres install.
-
-    .PARAMETER ServiceAccount
-        The account that will be used to run the service.
-
-    .PARAMETER SuperAccount
-        The account that will be the super account in PostgreSQL.
-
-    .PARAMETER Features
-        The Postgres features to install.
-
-    .PARAMETER OptionFile
-        The file that has options for the install.
-
     .NOTES
         The ReadOnly parameter was made mandatory in this example to show
         how to handle unused mandatory parameters.
@@ -69,94 +45,91 @@ function Get-TargetResource
 
         [Parameter(Mandatory = $true)]
         [System.String]
-        $InstallerPath,
-
-        [Parameter()]
-        [System.String]
-        $ServiceName,
-
-        [Parameter()]
-        [System.String]
-        $Prefix,
-
-        [Parameter()]
-        [System.UInt16]
-        $Port,
-
-        [Parameter()]
-        [System.String]
-        $DataDir,
-
-        [Parameter()]
-        [System.Management.Automation.PSCredential]
-        $ServiceAccount,
-
-        [Parameter()]
-        [System.Management.Automation.PSCredential]
-        $SuperAccount,
-
-        [Parameter()]
-        [System.String]
-        $Features,
-
-        [Parameter()]
-        [System.String]
-        $OptionFile
+        $InstallerPath
     )
 
-    Write-Verbose "Searching registry for Postgres keys for version $Version"
-    $uninstallRegistry = Get-ChildItem -Path 'HKLM:\\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object -FilterScript {$_.Name -match "PostgreSQL $Version"}
-    if ($null -eq $uninstallRegistry)
+    Write-Verbose -Message ($script:localizedData.SearchingRegistry -f $Version)
+    $registryKeys = Get-ChildItem -Path 'HKLM:\\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object -FilterScript {$_.Name -match "PostgreSQL $Version"}
+    if ($null -eq $registryKeys)
     {
-        Write-Verbose "No keys found for version specified."
-        return @{
+        Write-Verbose -Message ($script:localizedData.NoVersionFound)
+        $getResults =  @{
             Ensure          = "Absent"
-            InstallerPath   = $null
-            Version         = $null
+            InstallerPath   = $InstallerPath
+            Version         = $Version
         }
-    }
-
-
-    Write-Verbose "Found keys for version $Version"
-    $GetResults = @{
-        Ensure          = 'Present'
-        Version         = $uninstallRegistry.GetValue('DisplayVersion')
-        InstallerPath   = $uninstallRegistry.GetValue('UninstallString')
-        Prefix          = $uninstallRegistry.GetValue('InstallLocation')
-    }
-
-    # Find the service and verify it matches provided parameters
-    $Service = Get-WmiObject win32_service | Where-Object {$_.Name -match $ServiceName}
-    if ($null -eq $Service)
-    {
-        Write-Warning "No service with the specified name $ServiceName could be found, but Postgres is installed"
     }
     else
     {
-        if ($Service.Name -eq $ServiceName)
+        $prefixRegistry = $registryKeys.GetValue('InstallLocation')
+
+        # Search Services for PostgreSQL so we can get the status of the service.
+        Write-Verbose -Message ($script:localizedData.CheckingForService)
+        $services = Get-ChildItem -Path HKLM:\SYSTEM\CurrentControlSet\Services
+        foreach ($service in $services)
         {
-            Write-Verbose "Service found with specified name $ServiceName."
-            $GetResults.ServiceName = $ServiceName
+            $value = Get-ItemProperty -Path $service.PSPath -Name ImagePath -ErrorAction SilentlyContinue
+
+            if($value.ImagePath -like "*$prefixRegistry*")
+            {
+                $result = $service
+            }
         }
-        else
+        if($result)
         {
-            Write-Warning "Service with the specified name $ServiceName could not be found."
+            $serviceDisplayName = ($result.GetValue('DisplayName') -split ' - ')[0]
+            $serviceLogon = $result.GetValue('ObjectName')
+            $serviceDataDir = (($result.GetValue('ImagePath') -split ' -D')[1] -split ' -w')[0].Trim().Replace('"','')
         }
 
-        # Using Match because WMI Service class does not return FQDN for builtin accounts
-        # while the ServiceAccount username will be FQDN
-        if ($ServiceAccount.UserName -match $Service.StartName)
+        #Open config to check port
+        Write-Verbose -Message ($script:localizedData.CheckingConfig)
+        $conf = Get-Content -Path $serviceDataDir\postgresql.conf
+        foreach ($line in $conf)
         {
-            Write-Verbose "Service is using the specified account $($ServiceAccount.UserName)"
-            $GetResults.ServiceAccount = $ServiceAccount.UserName
+            if ($line -like 'port =*')
+            {
+                $confPort = $line.Substring(7,8).Trim()
+            }
         }
-        else
+
+        # Check licenses that are in the install dir to see what features are installed
+        Write-Verbose -Message ($script:localizedData.CheckingFeatures)
+        $files = Get-ChildItem $prefixRegistry -Name '*license*'
+
+        $installedFeatures = @()
+        if($files -match 'commandlinetools')
         {
-            Write-Warning "Service does not use the specified account to run $($ServiceAccount.UserName)"
+            $installedFeatures += 'commandlinetools'
+        }
+        if($files -match 'pgAdmin')
+        {
+            $installedFeatures += 'pgAdmin'
+        }
+        if($files -match 'server')
+        {
+            $installedFeatures += 'server'
+        }
+        if($files -match 'StackBuilder')
+        {
+            $installedFeatures += 'stackbuilder'
+        }
+
+        Write-Verbose -Message ($script:localizedData.FoundKeysForVersion -f $Version)
+        $getResults = @{
+            Ensure           = 'Present'
+            Version          = $registryKeys.GetValue('DisplayVersion')
+            InstallerPath    = $InstallerPath
+            InstallDirectory = $prefixRegistry
+            ServiceName      = $serviceDisplayName
+            ServiceAccount   = $serviceLogon
+            DataDirectory    = $serviceDataDir
+            ServerPort       = $confPort
+            Features         = $installedFeatures -join ','
         }
     }
 
-    return $GetResults
+    return $getResults
 }
 
 <#
@@ -175,13 +148,13 @@ function Get-TargetResource
     .PARAMETER ServiceName
         The name of the windows service that postgres will run under.
 
-    .PARAMETER Prefix
+    .PARAMETER InstallationDirectory
         The folder path that Postgre should be installed to.
 
-    .PARAMETER Port
+    .PARAMETER ServerPort
         The port that Postgres will listen on for incoming connections.
 
-    .PARAMETER DataDir
+    .PARAMETER DataDirectory
         The path for all the data from this Postgres install.
 
     .PARAMETER ServiceAccount
@@ -221,15 +194,15 @@ function Set-TargetResource
 
         [Parameter()]
         [System.String]
-        $Prefix,
+        $InstallDirectory,
 
         [Parameter()]
         [System.UInt16]
-        $Port,
+        $ServerPort,
 
         [Parameter()]
         [System.String]
-        $DataDir,
+        $DataDirectory,
 
         [Parameter()]
         [System.Management.Automation.PSCredential]
@@ -240,7 +213,7 @@ function Set-TargetResource
         $SuperAccount,
 
         [Parameter()]
-        [System.String]
+        [System.String[]]
         $Features,
 
         [Parameter()]
@@ -250,13 +223,17 @@ function Set-TargetResource
 
     if ($Ensure -eq 'Present')
     {
+        if (-not (Test-Path -Path $InstallerPath))
+        {
+            throw ($script:localizedData.PathIsMissing -f $InstallerPath)
+        }
 
         $arguments = @(
             "--unattendedmodeui none"
             "--mode unattended"
         )
 
-        $argumentParameters = @('servicename', 'prefix', 'datair', 'port', 'features', 'optionfile')
+        $argumentParameters = @('servicename', 'InstallDirectory', 'DataDirectory', 'serverport', 'features', 'optionfile')
 
         foreach ($arg in $argumentParameters)
         {
@@ -267,6 +244,23 @@ function Set-TargetResource
                     $finalServiceName = $ServiceName.Replace(" ", "_")
                     $arguments += "--servicename `"$finalServiceName`""
                     Write-Verbose -Message ($script:localizedData.ParameterSetTo -f $arg, $finalServiceName)
+                }
+                elseif ($arg -eq 'features')
+                {
+                    $featuresToString = ($PSBoundParameters[$arg] -join ',').ToLower()
+                    $finalFeatureString = $featuresToString.Replace('pgadmin', 'pgAdmin')
+                    $arguments += "--enable-components `"$finalFeatureString`""
+                    Write-Verbose -Message ($script:localizedData.ParameterSetTo -f 'enable-components', $finalFeatureString)
+                }
+                elseif ($arg -eq 'DataDirectory')
+                {
+                    $arguments += "--datadir `"$($PSBoundParameters[$arg])`""
+                    Write-Verbose -Message ($script:localizedData.ParameterSetTo -f 'datadir', $($PSBoundParameters[$arg]))
+                }
+                elseif ($arg -eq 'InstallDirectory')
+                {
+                    $arguments += "--prefix `"$($PSBoundParameters[$arg])`""
+                    Write-Verbose -Message ($script:localizedData.ParameterSetTo -f 'prefix', $($PSBoundParameters[$arg]))
                 }
                 else
                 {
@@ -296,34 +290,48 @@ function Set-TargetResource
             $arguments += "--superpassword `"$($SuperAccount.GetNetworkCredential().Password)`""
         }
 
+        $displayArguments = $arguments.Clone()
+        $i = 0
+        foreach ($arg in $displayArguments)
+        {
+            if ($arg -match '--superpassword' -or $arg -match '--servicepassword')
+            {
+                $displayArguments[$i] = $arg.Split(' ')[0] + ' *******'
+            }
+            $i++
+        }
         Write-Verbose -Message ($script:localizedData.StartingInstall)
-        $process = Start-Process $InstallerPath -ArgumentList ($Arguments -join " ") -Wait -PassThru -NoNewWindow
+        Write-Verbose -Message ($script:localizedData.InstallString -f $InstallerPath, $($displayArguments -join " "))
+        $process = Start-Process $InstallerPath -ArgumentList ($arguments -join " ") -Wait -PassThru -NoNewWindow
         $exitCode = $process.ExitCode
 
-        if ($exitCode -ne 0 -or $exitCode -ne 1641 -or $exitCode -ne 3010)
+        if ($exitCode -eq 0 -or $exitCode -eq 1641 -or $exitCode -eq 3010)
         {
-            throw ($script:localizedData.PostgreSqlFailed -f "install", $exitCode)
+            Write-Verbose -Message ($script:localizedData.PostgreSqlSuccess -f "installed", $exitCode)
         }
         else
         {
-            Write-Verbose -Message ($script:localizedData.PostgreSqlSuccess -f "installed", $exitCode)
+            throw ($script:localizedData.PostgreSqlFailed -f "install", $exitCode)
         }
     }
     else
     {
+        Write-Verbose -Message ($script:localizedData.SearchingRegistry -f $Version)
         $uninstallRegistry = Get-ChildItem -Path 'HKLM:\\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object -FilterScript {$_.Name -match "PostgreSQL $Version"}
         $uninstallString = $uninstallRegistry.GetValue('UninstallString')
 
+        Write-Verbose -Message ($script:localizedData.PosgreSqlUninstall)
+        Write-Verbose -Message ($script:localizedData.UninstallString -f $uninstallString, '--mode unattended')
         $process = Start-Process -FilePath $uninstallString -ArgumentList '--mode unattended' -Wait
         $exitCode = $process.ExitCode
 
-        if ($exitCode -ne 0)
+        if ($exitCode -eq 0 -or $null -eq $exitCode)
         {
-            throw  ($script:localizedData.PostgreSqlFailed -f "uninstall", $exitCode)
+            Write-Verbose -Message ($script:localizedData.PostgreSqlSuccess -f "uninstalled", $exitCode)
         }
         else
         {
-            Write-Verbose -Message ($script:localizedData.PostgreSqlSuccess -f "uninstalled", $exitCode)
+            throw  ($script:localizedData.PostgreSqlFailed -f "uninstall", $exitCode)
         }
     }
 }
@@ -344,13 +352,13 @@ function Set-TargetResource
     .PARAMETER ServiceName
         The name of the windows service that postgres will run under.
 
-    .PARAMETER Prefix
+    .PARAMETER InstallDirectory
         The folder path that Postgre should be installed to.
 
-    .PARAMETER Port
-        The port that Postgres will listen on for incoming connections.
+    .PARAMETER ServerPort
+        The server port that Postgres will listen on for incoming connections.
 
-    .PARAMETER DataDir
+    .PARAMETER DataDirectory
         The path for all the data from this Postgres install.
 
     .PARAMETER ServiceAccount
@@ -391,15 +399,15 @@ function Test-TargetResource
 
         [Parameter()]
         [System.String]
-        $Prefix,
+        $InstallDirectory,
 
         [Parameter()]
         [System.UInt16]
-        $Port,
+        $ServerPort,
 
         [Parameter()]
         [System.String]
-        $DataDir,
+        $DataDirectory,
 
         [Parameter()]
         [System.Management.Automation.PSCredential]
@@ -410,7 +418,7 @@ function Test-TargetResource
         $SuperAccount,
 
         [Parameter()]
-        [System.String]
+        [System.String[]]
         $Features,
 
         [Parameter()]
@@ -418,17 +426,82 @@ function Test-TargetResource
         $OptionFile
     )
 
-    Write-Verbose "Searching for Postgres registry keys to determine install status."
-    $uninstallRegistry = Get-ChildItem -Path 'HKLM:\\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object -FilterScript {$_.Name -match "PostgreSQL $Version"}
-    if ($null -eq $uninstallRegistry)
-    {
-        Write-Verbose "Postgres version $Version not installed."
-        return $false
+    $getTargetResourceParameters = @{
+        Ensure        = $Ensure
+        Version       = $Version
+        InstallerPath = $InstallerPath
     }
-    $Version = $uninstallRegistry.GetValue('DisplayVersion')
-    if ($Version -in @('9', '10', '11', '12', '13'))
+
+    $getTargetResourceResults = Get-TargetResource @getTargetResourceParameters
+    $result = $true
+
+    if ($Ensure -eq 'Present')
     {
-        Write-Verbose "Postgres version $Version is installed."
-        return $true
+        if ($getTargetResourceResults.Ensure -eq 'Absent')
+        {
+            Write-Verbose -Message ($script:localizedData.MismatchSetting -f 'Ensure', $Ensure, $getTargetResourceResults.Ensure, 'false')
+            $result = $false
+        }
+        else
+        {
+            if ($getTargetResourceResults.Version -ne $Version)
+            {
+                Write-Warning -Message ($script:localizedData.MismatchWarning -f "Version", $Version, $getTargetResourceResults.Version)
+            }
+            if ($getTargetResourceResults.ServiceName -ne $ServiceName -and $null -ne $ServiceName)
+            {
+                Write-Warning -Message ($script:localizedData.MismatchWarning -f "ServiceName", $ServiceName, $getTargetResourceResults.ServiceName)
+            }
+            if ($getTargetResourceResults.InstallDirectory -ne $InstallDirectory -and $null -ne $InstallDirectory)
+            {
+                Write-Warning -Message ($script:localizedData.MismatchWarning -f "InstallDirectory", $InstallDirectory, $getTargetResourceResults.InstallDirectory)
+            }
+            if ($getTargetResourceResults.ServerPort -ne $ServerPort -and $null -ne $ServerPort)
+            {
+                Write-Warning -Message ($script:localizedData.MismatchWarning -f "ServerPort", $ServerPort, $getTargetResourceResults.ServerPort)
+            }
+            if ($getTargetResourceResults.DataDirectory -ne $DataDirectory -and $null -ne $DataDirectory)
+            {
+            Write-Warning -Message ($script:localizedData.MismatchWarning -f "DataDirectory", $DataDirectory, $getTargetResourceResults.DataDirectory)
+            }
+            if ($getTargetResourceResults.ServiceAccount -ne $ServiceAccount.UserName -and $null -ne $ServiceAccount)
+            {
+                Write-Warning -Message ($script:localizedData.MismatchWarning -f "ServiceAccount", $ServiceAccount.UserName, $getTargetResourceResults.ServiceAccount)
+            }
+            if ($null -ne $getTargetResourceResults.Features)
+            {
+                $featureArray = $getTargetResourceResults.Features -Split ','
+                foreach ($feature in $Features)
+                {
+                    if ($featureArray -notcontains $feature)
+                    {
+                        Write-Warning -Message ($script:localizedData.MissingFeature -f $feature)
+                    }
+                }
+
+                if ($featureArray.count -ne $Features.Count)
+                {
+                    foreach ($feature in $featureArray)
+                    {
+                        if ($Features -notcontains $feature)
+                        {
+                            Write-Warning -Message ($script:localizedData.ExtraFeature -f $feature)
+                        }
+                    }
+                }
+            }
+        }
     }
+    else
+    {
+        if ($getTargetResourceResults.Ensure -eq 'Present')
+        {
+            Write-Verbose -Message ($script:localizedData.MismatchSetting -f 'Ensure', $Ensure, $getTargetResourceResults.Ensure, 'false')
+            $result = $false
+        }
+    }
+
+    return $result
 }
+
+Export-ModuleMember -Function *-TargetResource
