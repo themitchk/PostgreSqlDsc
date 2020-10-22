@@ -19,6 +19,8 @@
     .OUTPUTS
         Hash table containing key 'GetResult' which holds the value of the result from the SQL script that was ran from the parameter 'GetFilePath'.
 #>
+
+$script:localizedData = Get-LocalizedData -DefaultUICulture en-US
 function Get-TargetResource
 {
     [CmdletBinding()]
@@ -46,22 +48,31 @@ function Get-TargetResource
         [System.Management.Automation.Credential()]
         $Credential,
 
-        [Parameter]
+        [Parameter()]
         [System.String]
         $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe"
     )
 
     $env:PGPASSWORD = $Credential.Password.ToString()
     $env:PGUSER = $Credential.UserName
-    # Call psql w/ script file
-    $getResult = & $PsqlLocation -d $DatabaseName -f $GetFilePath
+
+    try
+    {
+        Write-Verbose -Message "Executing Get-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        $getResult = Invoke-Command -ScriptBlock {
+            & $PsqlLocation -d $DatabaseName -f $GetFilePath
+        }
+    }
+    catch [System.Management.Automation.CommandNotFoundException]
+    {
+        Write-Verbose -Message ($script:localizedData.PsqlNotFound -f $PsqlLocation)
+    }
 
     $returnValue = @{
         DatabaseName     = [System.String] $DatabaseName
         SetFilePath      = [System.String] $SetFilePath
         GetFilePath      = [System.String] $GetFilePath
         TestFilePath     = [System.String] $TestFilePath
-        Credential       = [System.Object] $Credential
         GetResult        = [System.String[]] $getResult
     }
 
@@ -114,15 +125,31 @@ function Set-TargetResource
         [System.Management.Automation.Credential()]
         $Credential,
 
-        [Parameter]
+        [Parameter()]
         [System.String]
         $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe"
     )
 
     $env:PGPASSWORD = $Credential.Password.ToString()
     $env:PGUSER = $Credential.UserName
-    # Call psql w/ script file
-    $getResult = & $PsqlLocation -d $DatabaseName -f $SetFilePath
+
+    try
+    {
+        Write-Verbose "Executing Get-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Stop"
+        Invoke-Command -ScriptBlock {
+            & $PsqlLocation -d $DatabaseName -f $SetFilePath 2>&1
+        }
+    }
+    catch [System.Management.Automation.CommandNotFoundException]
+    {
+        Write-Verbose -Message ($script:localizedData.PsqlNotFound -f $PsqlLocation)
+    }
+    finally
+    {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
 }
 
 <#
@@ -171,11 +198,42 @@ function Test-TargetResource
         [System.Management.Automation.Credential()]
         $Credential,
 
-        [Parameter]
+        [Parameter()]
         [System.String]
         $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe"
     )
 
-    # Need to figure out how to parse for errors here.  Does psql have a return code
-    [bool]$result = & $PsqlLocation -d $DatabaseName -f $TestFilePath
+    $env:PGPASSWORD = $Credential.Password.ToString()
+    $env:PGUSER = $Credential.UserName
+
+    try
+    {
+        Write-Verbose "Executing Get-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        # Must redirect error stream into output stream to capture some errors from psql
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Stop"
+        $result = Invoke-Command -ScriptBlock {
+            & $PsqlLocation -d $DatabaseName -f $TestFilePath 2>&1
+        }
+
+        if ($result -eq [bool]::TrueString)
+        {
+            return $true
+        }
+        return $false
+    }
+    catch [System.Management.Automation.CommandNotFoundException]
+    {
+        Write-Verbose -Message ($script:localizedData.PsqlNotFound -f $PsqlLocation)
+        return $false
+    }
+    catch
+    {
+        Write-Verbose -Message $_.exception.message
+        return $false
+    }
+    finally
+    {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
 }
