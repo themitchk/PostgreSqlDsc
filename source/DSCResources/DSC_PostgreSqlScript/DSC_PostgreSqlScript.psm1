@@ -145,6 +145,7 @@ function Set-TargetResource
     catch [System.Management.Automation.CommandNotFoundException]
     {
         Write-Verbose -Message ($script:localizedData.PsqlNotFound -f $PsqlLocation)
+        throw $_
     }
     finally
     {
