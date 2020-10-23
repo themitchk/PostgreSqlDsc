@@ -34,14 +34,6 @@ try
     InModuleScope $script:dscResourceName {
         $moduleResourceName = 'PostgreSqlDsc - DSC_PostgreSqlScript'
 
-        $serviceCredeDomain = New-Object `
-        -TypeName System.Management.Automation.PSCredential `
-            -ArgumentList 'contoso\testaccount', (ConvertTo-SecureString 'DummyPassword' -AsPlainText -Force)
-
-        $serviceCredBuiltin = New-Object `
-        -TypeName System.Management.Automation.PSCredential `
-        -ArgumentList 'NT AUTHORITY\NetworkService', (ConvertTo-SecureString 'doesntmatter' -AsPlainText -Force)
-
         $superAccountCred = New-Object `
         -TypeName System.Management.Automation.PSCredential `
         -ArgumentList 'postgresqlAdmin', (ConvertTo-SecureString 'DummyPassword' -AsPlainText -Force)
@@ -52,10 +44,14 @@ try
             GetFilePath      = "C:\test.sql"
             TestFilePath     = "C:\test.sql"
             Credential       = $superAccountCred
-            PsqlLocation     = "C:\Program Files\PostgreSQL\12\bin\psql.exe"
         }
 
-        Describe "$moduleResourceName\Get-TargetResource" {
+        $psqlListResults = @(
+            " postgres      | postgres | UTF8 ",
+            " template0      | postgres | UTF8 "
+            )
+
+        Describe "$moduleResourceName\Get-TargetResource" -Tag 'Get' {
             Context 'When Get-TargetResource runs successfully' {
                 It 'Should invoke psql and return expected results' {
                     Mock Invoke-Command {return "<Script Output Sample>"}
@@ -87,20 +83,43 @@ try
 
         Describe "$moduleResourceName\Set-TargetResource" -Tag 'Set'{
             Context 'When Set-TargetResource runs successfully' {
-                It 'Should invoke psql ' {
+                BeforeAll {
                     Mock -CommandName Invoke-Command -MockWith {}
+                }
+                Context 'When database does not exist' {
+                    BeforeEach {
+                        Mock -CommandName Invoke-Command -MockWith {}
+                        Mock Invoke-Command -Verifiable -ParameterFilter {$ScriptBlock -match '-lqt 2>&1'} -MockWith { return $psqlListResults }
+                    }
+                    It 'Should invoke psql and create database by default' {
+                        Mock -CommandName Invoke-Command -Verifiable -MockWith {return ""} -ParameterFilter {$ScriptBlock -match 'CREATE DATABASE'}
 
-                    Set-TargetResource @scriptParams
-                    Assert-MockCalled Invoke-Command -Exactly -Times 1 -Scope It
+                        Set-TargetResource @scriptParams
+                        Assert-MockCalled Invoke-Command -Exactly -Times 3 -Scope It
+                        Assert-VerifiableMock
+                    }
+
+                    It 'Should invoke psql and not create database when CreateDatabase parameter is false' {
+                        $NoCreateParams = $scriptParams.Clone()
+                        $NoCreateParams.CreateDatabaseIfNotExists = $false
+
+                        Set-TargetResource @NoCreateParams
+                        Assert-VerifiableMock
+                        Assert-MockCalled Invoke-Command -Exactly -Times 2 -Scope It
+                        Assert-MockCalled Invoke-Command -Times 0 -Scope It -ParameterFilter {$ScriptBlock -match "CREATE DATABASE"}
+                    }
                 }
 
-                It 'Should call default psql directory' {
-                    $noPsqlParam = $scriptParams.Clone()
-                    $noPsqlParam.PsqlLocation = $null
-                    Mock -CommandName Invoke-Command -MockWith {}
+                Context 'When database exists' {
+                    It 'Should not call CREATE DATABASE' {
+                        $psqlListResultsWithDatabase = @(" $($scriptParams.DatabaseName)      | postgres | UTF8")
+                        Mock Invoke-Command -Verifiable -ParameterFilter {$ScriptBlock -match '-lqt 2>&1'} -MockWith { return $psqlListResultsWithDatabase }
 
-                    Set-TargetResource @scriptParams
-                    Assert-MockCalled Invoke-Command -Exactly -Times 1 -Scope It
+                        Set-TargetResource @scriptParams
+                        Assert-VerifiableMock
+                        Assert-MockCalled Invoke-Command -Exactly -Times 2 -Scope It
+                        Assert-MockCalled Invoke-Command -Times 0 -Scope It -ParameterFilter {$ScriptBlock -match "CREATE DATABASE"}
+                    }
                 }
             }
 
@@ -128,7 +147,7 @@ try
             }
         }
 
-        Describe "$moduleResourceName\Test-TargetResource" {
+        Describe "$moduleResourceName\Test-TargetResource" -Tag 'Test' {
             Context 'When running Test-TargetResource successfully' {
                 It 'Should return True when script returns "true"' {
                     Mock Invoke-Command {return "true"}

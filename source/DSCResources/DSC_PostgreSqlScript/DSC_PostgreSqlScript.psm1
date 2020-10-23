@@ -127,7 +127,11 @@ function Set-TargetResource
 
         [Parameter()]
         [System.String]
-        $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe"
+        $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe",
+
+        [Parameter()]
+        [bool]
+        $CreateDatabaseIfNotExists = $true
     )
 
     $env:PGPASSWORD = $Credential.Password.ToString()
@@ -135,9 +139,27 @@ function Set-TargetResource
 
     try
     {
-        Write-Verbose "Executing Get-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        Write-Verbose "Executing Set-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
         $previousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = "Stop"
+        $DbExists = $false;
+        $DbList = Invoke-Command -ScriptBlock {& $PsqlLocation -lqt 2>&1}
+
+        foreach ($db in $DbList)
+        {
+            if ($db.split("|")[0].trim() -eq $DatabaseName)
+            {
+                $DbExists = $true
+                continue
+            }
+        }
+
+        if (($DbExists -eq $false) -and $CreateDatabaseIfNotExists)
+        {
+            Invoke-Command -ScriptBlock {
+                & $PsqlLocation -c "CREATE DATABASE $DatabaseName"
+            }
+        }
         Invoke-Command -ScriptBlock {
             & $PsqlLocation -d $DatabaseName -f $SetFilePath 2>&1
         }
@@ -145,6 +167,10 @@ function Set-TargetResource
     catch [System.Management.Automation.CommandNotFoundException]
     {
         Write-Verbose -Message ($script:localizedData.PsqlNotFound -f $PsqlLocation)
+        throw $_
+    }
+    catch
+    {
         throw $_
     }
     finally
@@ -209,7 +235,7 @@ function Test-TargetResource
 
     try
     {
-        Write-Verbose "Executing Get-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        Write-Verbose "Executing Test-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
         # Must redirect error stream into output stream to capture some errors from psql
         $previousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = "Stop"
