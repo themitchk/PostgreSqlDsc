@@ -98,6 +98,8 @@ function Get-TargetResource
         The credentials to authenticate with, using PostgreSQL Authentication.
     .PARAMETER PsqlLocation
         Location of the psql executable.  Defaults to "C:\Program Files\PostgreSQL\12\bin\psql.exe".
+    .PARAMETER CreateDatabase
+        Optionally creates a database if the database specified with DatabaseName doesn't exist.  Defaults to $true.
 #>
 function Set-TargetResource
 {
@@ -131,7 +133,7 @@ function Set-TargetResource
 
         [Parameter()]
         [bool]
-        $CreateDatabaseIfNotExists = $true
+        $CreateDatabase = $true
     )
 
     $env:PGPASSWORD = $Credential.Password.ToString()
@@ -154,7 +156,7 @@ function Set-TargetResource
             }
         }
 
-        if (($DbExists -eq $false) -and $CreateDatabaseIfNotExists)
+        if (($DbExists -eq $false) -and $CreateDatabase)
         {
             Invoke-Command -ScriptBlock {
                 & $PsqlLocation -c "CREATE DATABASE $DatabaseName"
