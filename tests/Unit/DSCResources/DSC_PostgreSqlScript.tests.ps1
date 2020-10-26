@@ -101,7 +101,7 @@ try
 
                     It 'Should invoke psql and not create database when CreateDatabase parameter is false' {
                         $NoCreateParams = $scriptParams.Clone()
-                        $NoCreateParams.CreateDatabaseIfNotExists = $false
+                        $NoCreateParams.CreateDatabase = $false
 
                         Set-TargetResource @NoCreateParams
                         Assert-VerifiableMock
