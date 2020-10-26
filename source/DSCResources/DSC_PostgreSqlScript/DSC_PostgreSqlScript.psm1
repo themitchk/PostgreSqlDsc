@@ -11,7 +11,6 @@
     .PARAMETER TestFilePath
         Path to the T-SQL file that will perform Test action.
         Any script that does not throw an error or returns null is evaluated to true.
-        The cmdlet Invoke-Sqlcmd treats T-SQL Print statements as verbose text, and will not cause the test to return false.
     .PARAMETER Credential
         The credentials to authenticate with, using PostgreSQL Authentication.
     .PARAMETER PsqlLocation
@@ -50,7 +49,7 @@ function Get-TargetResource
 
         [Parameter()]
         [System.String]
-        $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe"
+        $PsqlLocation = 'C:\Program Files\PostgreSQL\12\bin\psql.exe'
     )
 
     $env:PGPASSWORD = $Credential.Password.ToString()
@@ -69,10 +68,10 @@ function Get-TargetResource
     }
 
     $returnValue = @{
-        DatabaseName     = [System.String] $DatabaseName
-        SetFilePath      = [System.String] $SetFilePath
-        GetFilePath      = [System.String] $GetFilePath
-        TestFilePath     = [System.String] $TestFilePath
+        DatabaseName     = $DatabaseName
+        SetFilePath      = $SetFilePath
+        GetFilePath      = $GetFilePath
+        TestFilePath     = $TestFilePath
         GetResult        = [System.String[]] $getResult
     }
 
@@ -93,7 +92,6 @@ function Get-TargetResource
     .PARAMETER TestFilePath
         Path to the T-SQL file that will perform Test action.
         Any script that does not throw an error or returns null is evaluated to true.
-        The cmdlet Invoke-Sqlcmd treats T-SQL Print statements as verbose text, and will not cause the test to return false.
     .PARAMETER Credential
         The credentials to authenticate with, using PostgreSQL Authentication.
     .PARAMETER PsqlLocation
@@ -129,7 +127,7 @@ function Set-TargetResource
 
         [Parameter()]
         [System.String]
-        $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe",
+        $PsqlLocation = 'C:\Program Files\PostgreSQL\12\bin\psql.exe',
 
         [Parameter()]
         [bool]
@@ -194,7 +192,6 @@ function Set-TargetResource
     .PARAMETER TestFilePath
         Path to the T-SQL file that will perform Test action.
         Any script that does not throw an error or returns null is evaluated to true.
-        The cmdlet Invoke-Sqlcmd treats T-SQL Print statements as verbose text, and will not cause the test to return false.
     .PARAMETER Credential
         The credentials to authenticate with, using PostgreSQL Authentication.
     .PARAMETER PsqlLocation
@@ -229,7 +226,7 @@ function Test-TargetResource
 
         [Parameter()]
         [System.String]
-        $PsqlLocation = "C:\Program Files\PostgreSQL\12\bin\psql.exe"
+        $PsqlLocation = 'C:\Program Files\PostgreSQL\12\bin\psql.exe'
     )
 
     $env:PGPASSWORD = $Credential.Password.ToString()
@@ -245,20 +242,25 @@ function Test-TargetResource
             & $PsqlLocation -d $DatabaseName -f $TestFilePath 2>&1
         }
 
-        if ($result -eq [bool]::TrueString)
+        if ($null -eq $result)
         {
+            Write-Verbose -Message ($script:localizedData.ReturnValue -f $true)
             return $true
         }
+
+        Write-Verbose -Message ($script:localizedData.ReturnValue -f $false)
         return $false
     }
     catch [System.Management.Automation.CommandNotFoundException]
     {
         Write-Verbose -Message ($script:localizedData.PsqlNotFound -f $PsqlLocation)
+        Write-Verbose -Message ($script:localizedData.ReturnValue -f $false)
         return $false
     }
     catch
     {
         Write-Verbose -Message $_.exception.message
+        Write-Verbose -Message ($script:localizedData.ReturnValue -f $false)
         return $false
     }
     finally

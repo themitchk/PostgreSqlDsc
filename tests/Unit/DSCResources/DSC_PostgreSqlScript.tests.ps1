@@ -40,15 +40,15 @@ try
 
         $scriptParams = @{
             DatabaseName     = 'testdb'
-            SetFilePath      = "C:\test.sql"
-            GetFilePath      = "C:\test.sql"
-            TestFilePath     = "C:\test.sql"
+            SetFilePath      = 'C:\set.sql'
+            GetFilePath      = 'C:\get.sql'
+            TestFilePath     = 'C:\test.sql'
             Credential       = $superAccountCred
         }
 
         $psqlListResults = @(
-            " postgres      | postgres | UTF8 ",
-            " template0      | postgres | UTF8 "
+            ' postgres      | postgres | UTF8 ',
+            ' template0      | postgres | UTF8 '
             )
 
         Describe "$moduleResourceName\Get-TargetResource" -Tag 'Get' {
@@ -61,8 +61,8 @@ try
                     Assert-MockCalled Invoke-Command -Exactly -Times 1 -Scope It
 
                     $dscResult.DatabaseName | Should -Be $scriptParams.DatabaseName
-                    $dscResult.SetFilePath | Should -Be "C:\test.sql"
-                    $dscResult.GetFilePath | Should -Be "C:\test.sql"
+                    $dscResult.SetFilePath | Should -Be "C:\set.sql"
+                    $dscResult.GetFilePath | Should -Be "C:\get.sql"
                     $dscResult.TestFilePath | Should -Be "C:\test.sql"
                     $dscResult.GetResult | Should -Be "<Script Output Sample>"
                 }
@@ -88,15 +88,14 @@ try
                 }
                 Context 'When database does not exist' {
                     BeforeEach {
-                        Mock -CommandName Invoke-Command -MockWith {}
                         Mock Invoke-Command -Verifiable -ParameterFilter {$ScriptBlock -match '-lqt 2>&1'} -MockWith { return $psqlListResults }
                     }
                     It 'Should invoke psql and call CREATE DATABASE by default' {
                         Mock -CommandName Invoke-Command -Verifiable -MockWith {return ""} -ParameterFilter {$ScriptBlock -match 'CREATE DATABASE'}
 
                         Set-TargetResource @scriptParams
-                        Assert-MockCalled Invoke-Command -Exactly -Times 3 -Scope It
                         Assert-VerifiableMock
+                        Assert-MockCalled Invoke-Command -Exactly -Times 3 -Scope It
                     }
 
                     It 'Should invoke psql and not create database when CreateDatabase parameter is false' {
@@ -128,19 +127,19 @@ try
                     $invalidParams = $scriptParams.Clone()
                     $invalidParams.PsqlLocation = "Z:\does-not-exist.exe"
 
-                    {Set-TargetResource @invalidParams } | Should throw "is not recognized as the name of a cmdlet, function"
+                    {Set-TargetResource @invalidParams } | Should -Throw -ExpectedMessage "is not recognized as the name of a cmdlet, function"
                 }
 
                 It 'Should re-throw errors from psql' {
                     Mock Invoke-Command -MockWith {throw [System.Management.Automation.RemoteException]}
 
-                    {Set-TargetResource @scriptParams} | Should throw
+                    {Set-TargetResource @scriptParams} | Should -Throw
                 }
             }
         }
 
         Describe "$moduleResourceName\Test-TargetResource" -Tag 'Test' {
-            Context 'When running Test-TargetResource successfully' {
+            Context 'When running Test-TargetResource is true' {
                 It 'Should return True when script returns "true"' {
                     Mock Invoke-Command {return "true"}
 
@@ -170,7 +169,7 @@ try
                 }
             }
 
-            Context 'When running Test-TargetResource fails' {
+            Context 'When running Test-TargetResource is false' {
                 BeforeEach {
                     $invalidParams = $scriptParams.Clone()
                 }

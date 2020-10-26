@@ -9,4 +9,5 @@ ConvertFrom-StringData @'
     ExecutingGetScript = Executing the Get script from the file path '{0}' on database '{1}'.
     ExecutingSetScript = Executing the Set script from the file path '{0}' on database '{1}'.
     ExecutingTestScript = Executing the Test script from the file path '{0}' on database '{1}'.
+    ReturnValue = Returning value '{0}'.
 '@
