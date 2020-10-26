@@ -1,3 +1,11 @@
+$script:ParentModulePath = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
+$script:modulesFolderPath = Join-Path -Path $script:ParentModulePath -ChildPath 'Modules'
+
+$script:CommonHelperModulePath = Join-Path -Path $script:modulesFolderPath -ChildPath 'DscResource.Common'
+Import-Module $script:CommonHelperModulePath -ErrorAction Stop
+
+$script:localizedData = Get-LocalizedData -DefaultUICulture en-US
+
 <#
     .SYNOPSIS
         Returns the current state of what the Get-script returns.
@@ -19,7 +27,6 @@
         Hash table containing key 'GetResult' which holds the value of the result from the SQL script that was ran from the parameter 'GetFilePath'.
 #>
 
-$script:localizedData = Get-LocalizedData -DefaultUICulture en-US
 function Get-TargetResource
 {
     [CmdletBinding()]
@@ -52,7 +59,7 @@ function Get-TargetResource
         $PsqlLocation = 'C:\Program Files\PostgreSQL\12\bin\psql.exe'
     )
 
-    $env:PGPASSWORD = $Credential.Password.ToString()
+    $env:PGPASSWORD = $Credential.GetNetworkCredential().Password
     $env:PGUSER = $Credential.UserName
 
     try
@@ -134,7 +141,7 @@ function Set-TargetResource
         $CreateDatabase = $true
     )
 
-    $env:PGPASSWORD = $Credential.Password.ToString()
+    $env:PGPASSWORD = $Credential.GetNetworkCredential().Password
     $env:PGUSER = $Credential.UserName
 
     try
@@ -191,11 +198,13 @@ function Set-TargetResource
         Any values returned by the T-SQL queries will also be returned by the cmdlet Get-DscConfiguration through the `GetResult` property.
     .PARAMETER TestFilePath
         Path to the T-SQL file that will perform Test action.
-        Any script that does not throw an error or returns null is evaluated to true.
+        Any script that does not throw an error is evaluated to true.
     .PARAMETER Credential
         The credentials to authenticate with, using PostgreSQL Authentication.
     .PARAMETER PsqlLocation
         Location of the psql executable.  Defaults to "C:\Program Files\PostgreSQL\12\bin\psql.exe".
+    .PARAMETER CreateDatabase
+        Optionally creates a database if the database specified with DatabaseName doesn't exist.  Defaults to $true.
 #>
 function Test-TargetResource
 {
@@ -226,10 +235,14 @@ function Test-TargetResource
 
         [Parameter()]
         [System.String]
-        $PsqlLocation = 'C:\Program Files\PostgreSQL\12\bin\psql.exe'
+        $PsqlLocation = 'C:\Program Files\PostgreSQL\12\bin\psql.exe',
+
+        [Parameter()]
+        [bool]
+        $CreateDatabase = $true
     )
 
-    $env:PGPASSWORD = $Credential.Password.ToString()
+    $env:PGPASSWORD = $Credential.GetNetworkCredential().Password
     $env:PGUSER = $Credential.UserName
 
     try
@@ -242,14 +255,8 @@ function Test-TargetResource
             & $PsqlLocation -d $DatabaseName -f $TestFilePath 2>&1
         }
 
-        if ($null -eq $result)
-        {
-            Write-Verbose -Message ($script:localizedData.ReturnValue -f $true)
-            return $true
-        }
-
-        Write-Verbose -Message ($script:localizedData.ReturnValue -f $false)
-        return $false
+        Write-Verbose -Message ($script:localizedData.ReturnValue -f $true)
+        return $true
     }
     catch [System.Management.Automation.CommandNotFoundException]
     {
@@ -268,3 +275,5 @@ function Test-TargetResource
         $ErrorActionPreference = $previousErrorActionPreference
     }
 }
+
+Export-ModuleMember -Function *-TargetResource
