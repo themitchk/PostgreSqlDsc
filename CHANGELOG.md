@@ -10,4 +10,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PostgreSqlInstall
   - Install Postgres with specified features
 - PostgreSqlScript
-  - Run T-SQL Scripts against Postgre
+  - Run T-SQL Scripts against Postgres

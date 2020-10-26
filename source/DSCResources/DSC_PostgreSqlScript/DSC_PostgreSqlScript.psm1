@@ -58,7 +58,7 @@ function Get-TargetResource
 
     try
     {
-        Write-Verbose -Message "Executing Get-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        Write-Verbose -Message ($script:localizedData.ExecutingGetScript -f $GetFilePath,$DatabaseName)
         $getResult = Invoke-Command -ScriptBlock {
             & $PsqlLocation -d $DatabaseName -f $GetFilePath
         }
@@ -141,7 +141,7 @@ function Set-TargetResource
 
     try
     {
-        Write-Verbose "Executing Set-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        Write-Verbose -Message ($script:localizedData.ExecutingSetScript -f $SetFilePath,$DatabaseName)
         $previousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = "Stop"
         $DbExists = $false;
@@ -156,7 +156,7 @@ function Set-TargetResource
             }
         }
 
-        if (($DbExists -eq $false) -and $CreateDatabase)
+        if ($DbExists -eq $false -and $CreateDatabase)
         {
             Invoke-Command -ScriptBlock {
                 & $PsqlLocation -c "CREATE DATABASE $DatabaseName"
@@ -237,7 +237,7 @@ function Test-TargetResource
 
     try
     {
-        Write-Verbose "Executing Test-TargetResource on Database $DatabaseName targeting script $GetFilePath, using psql located at $PsqlLocation"
+        Write-Verbose -Message ($script:localizedData.ExecutingTestScript -f $TestFilePath,$DatabaseName)
         # Must redirect error stream into output stream to capture some errors from psql
         $previousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = "Stop"
